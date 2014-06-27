@@ -22,6 +22,11 @@ class Movement(Enum):
     right = (1,0)
     stay = (0,0)
 
+class Gamestate(Enum):
+    dungeon = 0
+    battle = 1
+    game_over = 2
+
 class Dungeon():
 
     def __init__(self, width, height):
@@ -30,6 +35,8 @@ class Dungeon():
         self.height = height
         self.player = Player(0,0)
         self.enemies = []
+        self.battle_enemy = None
+        self.gamestate = Gamestate.dungeon
 
         self.board = [ [1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
                        [0, 1, 0, 0, 1, 1, 1, 0, 0, 1],
@@ -43,9 +50,16 @@ class Dungeon():
         self.enemies = [Enemy(5,5), Enemy(7,0), Enemy(0,7)]
 
     def update_movement(self):
-        if self.player.move(self.board, self.enemies):
+        if self.player.move(self):
             for enemy in self.enemies:
-                enemy.move(self.board, self.enemies, self.player)
+                enemy.move(self)
+
+    def update_battle(self):
+        if self.player.health <= 0:
+            self.gamestate = Gamestate.game_over
+        elif self.battle_enemy.health <= 0:
+            self.gamestate = Gamestate.dungeon
+            self.enemies.remove(self.battle_enemy)
 
 class Player():
 
@@ -53,18 +67,29 @@ class Player():
         self.x = x
         self.y = y
         self.movement = Movement.stay
+        self.health = 100
+        self.attack = 5
+
+    def attacked(self, enemy):
+        if random.randint(0,10) < 8:
+            self.health -= enemy.attack
+            print "ENEMY HIT!"
+        else:
+            print "ENEMY MISS!"
     
-    def move(self, board, enemies):
+    def move(self, dungeon):
         
         new_x = self.x + self.movement[0]
         new_y = self.y + self.movement[1]
 
-        for enemy in enemies:
+        for enemy in dungeon.enemies:
             if enemy.x == new_x and enemy.y == new_y:
+                dungeon.gamestate = Gamestate.battle
+                dungeon.battle_enemy = enemy
                 print "BATTLE"
                 return 0
 
-        if 0 <= new_x < len(board) and 0 <= new_y < len(board[0]) and board[new_x][new_y]:
+        if 0 <= new_x < len(dungeon.board) and 0 <= new_y < len(dungeon.board[0]) and dungeon.board[new_x][new_y]:
             self.x = new_x
             self.y = new_y
             return 1
@@ -77,20 +102,31 @@ class Enemy():
         self.x = x
         self.y = y
         self.movement = Movement.stay
+        self.health = 30
+        self.attack = 3
 
-    def move(self, board, enemies, player):
+    def attacked(self, player):
+        if random.randint(0,10) < 9:
+            self.health -= player.attack
+            print "PLAYER HIT!"
+        else:
+            print "PLAYER MISS!"
+
+    def move(self, dungeon):
 
         movement_list = [Movement.right, Movement.left, Movement.down, Movement.up, Movement.stay]
         self.movement = random.choice(movement_list)
         new_x = self.x + self.movement[0]
         new_y = self.y + self.movement[1]
 
-        if player.x == new_x and player.y == new_y:
+        if dungeon.player.x == new_x and dungeon.player.y == new_y:
+            dungeon.gamestate = Gamestate.battle
+            dungeon.battle_enemy = self
             print "BATTLE"
             return 0
 
-        if 0 <= new_x < len(board) and 0 <= new_y < len(board[0]) and board[new_x][new_y]:
-            for enemy in enemies:
+        if 0 <= new_x < len(dungeon.board) and 0 <= new_y < len(dungeon.board[0]) and dungeon.board[new_x][new_y]:
+            for enemy in dungeon.enemies:
                 if enemy.x == new_x and enemy.y == new_y:
                     new_x = self.x
                     new_y = self.y
@@ -150,25 +186,46 @@ class Game():
             pygame.display.update()
 
     def key_presses(self):
+
         take_turn = False
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                self.done = True
-            elif event.type == pygame.KEYDOWN:
-                take_turn = True
-                self.dungeon.player.movement = Movement.stay
-                if event.key == pygame.K_RIGHT:
-                    self.dungeon.player.movement = Movement.right
-                elif event.key == pygame.K_LEFT:
-                    self.dungeon.player.movement = Movement.left
-                elif event.key == pygame.K_UP:
-                    self.dungeon.player.movement = Movement.up
-                elif event.key == pygame.K_DOWN:
-                    self.dungeon.player.movement = Movement.down
+        if self.dungeon.gamestate == Gamestate.dungeon:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.done = True
+                elif event.type == pygame.KEYDOWN:
+                    take_turn = True
+                    self.dungeon.player.movement = Movement.stay
+                    if event.key == pygame.K_RIGHT:
+                        self.dungeon.player.movement = Movement.right
+                    elif event.key == pygame.K_LEFT:
+                        self.dungeon.player.movement = Movement.left
+                    elif event.key == pygame.K_UP:
+                        self.dungeon.player.movement = Movement.up
+                    elif event.key == pygame.K_DOWN:
+                        self.dungeon.player.movement = Movement.down
+
+        elif self.dungeon.gamestate == Gamestate.battle:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.done = True
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        take_turn = True
+                        self.dungeon.player.attacked(self.dungeon.battle_enemy)
+                        self.dungeon.battle_enemy.attacked(self.dungeon.player)
+                        print "PLAYER:", self.dungeon.player.health
+                        print "ENEMY:", self.dungeon.battle_enemy.health
+
         return take_turn
  
     def update(self):
-        self.dungeon.update_movement()
+        if self.dungeon.gamestate == Gamestate.dungeon:
+            self.dungeon.update_movement()
+        elif self.dungeon.gamestate == Gamestate.battle:
+            self.dungeon.update_battle()
+        else:
+            print "GAME OVER"
+            self.done = True
 
 if __name__ == '__main__':
     pygame.init()
